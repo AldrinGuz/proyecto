@@ -1,0 +1,12 @@
+{
+  "name": "microservicio2",
+  "version": "1.0.0",
+  "description": "Microservicio de preprocesamiento de datos de Kunna",
+  "license": "ISC",
+  "author": "Aldrin B Guzmán Figueroa",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  }
+}

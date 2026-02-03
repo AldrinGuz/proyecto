@@ -1,0 +1,16 @@
+{
+  "name": "microservicio1",
+  "version": "1.0.0",
+  "description": "Microservicio de adquisición de datos de Kunna",
+  "license": "ISC",
+  "author": "Aldrin B Guzmán Figueroa",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1"
+  }
+}
