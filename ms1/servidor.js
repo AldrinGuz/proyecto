@@ -74,8 +74,8 @@ async function getData(token,filters) {
             "Content-Type": "application/json",
         },
         body: JSON.stringify({
-            time_start: "2025-01-17T09:18:38Z",
-            time_end: "2025-01-17T11:18:38Z",
+            time_start: "2025-06-01T00:00:00Z",
+            time_end: "2026-01-01T01:00:00Z",
             filters: filters,
             count: false,
             order: "DESC"
