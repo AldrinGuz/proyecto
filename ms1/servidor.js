@@ -1,14 +1,13 @@
 require("dotenv").config();
 
-const fs = require("fs");
-const path = require("path");
-
 const express = require("express");
 const app = express();
 
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
+
+const MS_URL = process.env.MS_URL;
 
 const K_CONEXIONES = process.env.K_CONEXIONES;
 const K_HUMEDAD = process.env.K_CLIMA;
@@ -21,38 +20,36 @@ const listCONEXIONES = ["inal.36.0.11","inal.36.0.12","inal.36.0.13","inal.36.0.
 const listCLIMA = ["GB/INF1-0036P1010","GB/INF2-0036P1011","GB/INF3-0036PB031","GB/INF4-0036PS062","GB/INF5-0036PS063"];
 const listELECTRICIDAD = ["0036 German Bernacer A/A","0036 German Bernacer Aire Acond.","0036 German Bernacer-Servicios Generales","0036 Germán Bernácer"];
 
-const filenames = [
-    "conexiones.csv",
-    "humedad.csv",
-    "co2.csv",
-    "temperatura.csv",
-    "particulas.csv",
-    "electricidad.csv"
-];
-
 app.get("/fetch-data", async (req, res) => {
     try {
-        const listData = [];
-        var size = 0;
-        listData.push(await getData(K_CONEXIONES,[{filter:"uid",values:listCONEXIONES}]));
-        listData.push(await getData(K_HUMEDAD,[{filter:"name",values:["Humidity"]},{filter:"alias",values:listCLIMA}]));
-        listData.push(await getData(K_CO2,[{filter:"name",values:["CO2"]},{filter:"alias",values:listCLIMA}]));
-        listData.push(await getData(K_TEMPERATURA,[{filter:"name",values:["Temperature"]},{filter:"alias",values:listCLIMA}]));
-        listData.push(await getData(K_PARTICULAS,[{filter:"name",values:["VocIndex"]},{filter:"alias",values:listCLIMA}]));
-        listData.push(await getData(K_ELECTRICIDAD,[{filter:"name",values:["15m"]},{filter:"description_origin",values:listELECTRICIDAD}]));
+        let rows = [];
+        const listData = [
+            await getData(K_CO2,[{filter:"name",values:["CO2"]},{filter:"alias",values:listCLIMA}]),
+            await getData(K_TEMPERATURA,[{filter:"name",values:["Temperature"]},{filter:"alias",values:listCLIMA}]),
+            await getData(K_HUMEDAD,[{filter:"name",values:["Humidity"]},{filter:"alias",values:listCLIMA}]),
+            await getData(K_CONEXIONES,[{filter:"uid",values:listCONEXIONES}]),
+            await getData(K_ELECTRICIDAD,[{filter:"name",values:["15m"]},{filter:"description_origin",values:listELECTRICIDAD}]),
+            await getData(K_PARTICULAS,[{filter:"name",values:["VocIndex"]},{filter:"alias",values:listCLIMA}])
+        ];
 
-        listData.forEach((data, i) => {
+        for (const data of listData) {
             if (data.code !== "20000-00000" || !data.result) {
                 throw new Error("Error en Kunna API");
+            } else {
+                rows.push(createMessage(data))
             }
+        }
 
-            const rows = extractTimeValueName(data);
-            writeCSV(filenames[i], rows);
+        await fetch(MS_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(rows)
         });
 
+
         res.status(200).json({
-            message: "CSV generados correctamente",
-            files: filenames
+            message: "Datos enviados correctamente a MS2",
+            ms2: rows
         });
 
     } catch (err) {
@@ -60,6 +57,7 @@ app.get("/fetch-data", async (req, res) => {
         res.status(500).json({ error: "Error interno en MS1" });
     }
 });
+
 
 app.listen(PORT, () => { console.log("MS1 activado. Esta escuchando en el puerto: "+PORT); });
 
@@ -74,8 +72,8 @@ async function getData(token,filters) {
             "Content-Type": "application/json",
         },
         body: JSON.stringify({
-            time_start: "2025-06-01T00:00:00Z",
-            time_end: "2026-01-01T01:00:00Z",
+            time_start: "2025-06-01T07:00:00Z",
+            time_end: "2025-06-01T07:15:00Z",
             filters: filters,
             count: false,
             order: "DESC"
@@ -85,7 +83,7 @@ async function getData(token,filters) {
     return await response.json();
 }
 
-function extractTimeValueName(data) {
+function createMessage(data) {
     const { columns, values } = data.result;
 
     const idxTime = columns.indexOf("time");
@@ -101,17 +99,4 @@ function extractTimeValueName(data) {
         value: row[idxValue],
         name: row[idxName]
     }));
-}
-
-function writeCSV(filename, rows) {
-    const header = "time,value,name\n";
-    const content = rows
-        .map(r => `${r.time},${r.value},${r.name}`)
-        .join("\n");
-
-    fs.writeFileSync(
-        path.join(__dirname, filename),
-        header + content,
-        "utf8"
-    );
 }
