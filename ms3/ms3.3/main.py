@@ -4,7 +4,7 @@ from tensorflow.keras.models import load_model
 import numpy as np
 
 # Cargar modelo
-model = load_model("autoencoder.keras", compile=False)
+model = load_model("autoencoder_tf.keras", compile=False)
 
 app = FastAPI(title="MS3 - Autoencoder")
 
