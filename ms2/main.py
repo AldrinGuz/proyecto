@@ -53,24 +53,20 @@ app = FastAPI(title="MS2 - Preprocesador de datos")
 async def preprocess_data(request: Request):
     payload = await request.json()
 
-    # --- Construcción del DataFrame desde el payload ---
     df_raw = payload_to_dataframe(payload)
     df_features = build_feature_dataframe(df_raw)
     df_15 = resample_15min(df_features)
     df_time = add_time_features(df_15)
     df_final = add_cyclic_features(df_time)
 
-    # --- Aseguramos que las columnas estén en el orden correcto ---
     df_final = df_final.reindex(columns=STANDAR_COLS)
 
-    # --- Aplicamos los scalers solo a las columnas físicas ---
     df_standard = df_final.copy()
     df_standard[STANDAR_COLS] = scaler_standard.transform(df_standard[STANDAR_COLS])
 
     df_robust = df_final.copy()
     df_robust[ROBUST_COLS] = scaler_robust.transform(df_robust[ROBUST_COLS])
 
-    # --- Mostrar resultados en consola para debug ---
     print("\n========== DATAFRAME FINAL ==========")
     print("STANDARD SCALER:")
     print(df_standard.head())
@@ -78,14 +74,13 @@ async def preprocess_data(request: Request):
     print(df_robust.head())
     print("=====================================\n")
 
-    # --- Retornamos los datos escalados ---
-    # Convertimos DataFrame → JSON
+    #Retornamos los datos escalados
+    # Convertimos DataFrame
     data_to_send = {
         "standard": dataframe_to_json_records(df_standard),
         "robust": dataframe_to_json_records(df_robust)
     }
 
-    # 🔥 AQUÍ se envían los datos al orquestador
     response = requests.post(
         "http://localhost:8004/aggregate",
         json=data_to_send
