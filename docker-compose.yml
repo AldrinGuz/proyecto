@@ -9,27 +9,27 @@ services:
   ms2:
     build: ./ms2
     ports:
-      - "4000:4000"
+      - "8000:8000"
 
   ms3_ocsvm:
     build: ./ms3/ms3.1
     ports:
-      - "4001:4001"
+      - "8001:8001"
 
   ms3_iforest:
     build: ./ms3/ms3.2
     ports:
-      - "4002:4002"
+      - "8002:8002"
 
   ms3_autoencoder:
     build: ./ms3/ms3.3
     ports:
-      - "4003:4003"
+      - "8003:8003"
 
   ms4:
     build: ./ms4
     ports:
-      - "4004:4004"
+      - "8004:8004"
     depends_on:
       - ms2
       - ms3_ocsvm
