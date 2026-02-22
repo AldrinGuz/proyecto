@@ -9,43 +9,14 @@ scaler_standard = joblib.load("scalers/standarscaler.pkl")
 scaler_robust = joblib.load("scalers/robustscaler.pkl")
 
 # Columnas físicas que serán escaladas
-SCALE_COLS = [
+SCALERS_COLS = [
     "CO2",
-    "Temperatura",
+    "Temp",
     "Humedad",
-    "NumPersonas",
+    "NumPers",
     "Energía",
-    "Mass Concentration"
+    "VOC"
 ]
-
-STANDAR_COLS = [
-    "CO2",
-    "Temperatura",
-    "Humedad",
-    "NumPersonas",
-    "Energía",
-    "Mass Concentration",
-    "hora_sin", "hora_cos",
-    "dia_sin", "dia_cos",
-    "fin_de_semana",
-    "mes_sin", "mes_cos",
-    "dm_sin", "dm_cos"
-]
-
-ROBUST_COLS = [
-    "CO2",
-    "Temperatura",
-    "Humedad",
-    "NumPersonas",
-    "Energía",
-    "Mass Concentration",
-    "hora_sin", "hora_cos",
-    "dia_sin", "dia_cos",
-    "mes_sin", "mes_cos",
-    "dm_sin", "dm_cos"
-]
-
-print(scaler_robust.feature_names_in_)
 
 app = FastAPI(title="MS2 - Preprocesador de datos")
 
@@ -53,19 +24,29 @@ app = FastAPI(title="MS2 - Preprocesador de datos")
 async def preprocess_data(request: Request):
     payload = await request.json()
 
-    df_raw = payload_to_dataframe(payload)
-    df_features = build_feature_dataframe(df_raw)
-    df_15 = resample_15min(df_features)
-    df_time = add_time_features(df_15)
-    df_final = add_cyclic_features(df_time)
+    dfs = payload_to_dataframe(payload)
 
-    df_final = df_final.reindex(columns=STANDAR_COLS)
+    df_co2 = preprocesar(dfs["CO2"], "CO2")
+    df_temp = preprocesar(dfs["Temperature"], "Temp")
+    df_hum = preprocesar(dfs["Humidity"], "Humedad")
+    df_voc = preprocesar(dfs["VocIndex"], "VOC")
+    df_ene = preprocesar(dfs["15m"], "Energía", "sum", "sum")
+    df_con = preprocesar(dfs["conexiones"], "NumPers", "sum", "mean")
+
+    df_final = pd.concat(
+        [df_temp, df_hum, df_co2, df_voc, df_ene, df_con],
+        axis=1
+    )
+
+    df_final = delete_NaN(df_final)
+    df_final = add_time_features(df_final)
+    df_final = add_cyclic_features(df_final)
 
     df_standard = df_final.copy()
-    df_standard[STANDAR_COLS] = scaler_standard.transform(df_standard[STANDAR_COLS])
+    df_standard[SCALERS_COLS] = scaler_standard.transform(df_standard[SCALERS_COLS])
 
     df_robust = df_final.copy()
-    df_robust[ROBUST_COLS] = scaler_robust.transform(df_robust[ROBUST_COLS])
+    df_robust[SCALERS_COLS] = scaler_robust.transform(df_robust[SCALERS_COLS])
 
     print("\n========== DATAFRAME FINAL ==========")
     print("STANDARD SCALER:")
@@ -82,65 +63,71 @@ async def preprocess_data(request: Request):
     }
 
     response = requests.post(
-        "http://localhost:8004/aggregate",
+        "http://ms4:8004/aggregate",
         json=data_to_send
     )
 
     return response.json()
 
 # ---------------- Funciones auxiliares ----------------
+def preprocesar(df, variable, unify="mean", agg="mean"):
+
+    df = df[["time", "value"]].copy()
+    df = df.rename(columns={"time": "timestamp", "value": variable})
+
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    df[variable] = pd.to_numeric(df[variable], errors="coerce")
+
+    # Eliminar nulos
+    df = df.dropna(subset=["timestamp", variable])
+
+    # Normalizar precisión temporal (evita microsegundos distintos)
+    df["timestamp"] = df["timestamp"].dt.floor("min")
+
+    # Unificar sensores en mismo instante
+    if unify == "sum":
+        df = df.groupby("timestamp", as_index=False)[variable].sum()
+    elif unify == "mean":
+        df = df.groupby("timestamp", as_index=False)[variable].mean()
+    else:
+        raise ValueError("unify debe ser 'mean' o 'sum'")
+
+    df = df.set_index("timestamp").sort_index()
+
+    # Agregación en ventanas de 15 minutos
+    if agg == "mean":
+        df = df.resample("15min").mean()
+    elif agg == "sum":
+        df = df.resample("15min").sum()
+    else:
+        raise ValueError("agg debe ser 'mean' o 'sum'")
+
+    return df
 
 def payload_to_dataframe(payload):
     rows = []
+
     for group in payload:
         for item in group:
             rows.append({
-                "time": pd.to_datetime(item["time"]),
+                "time": item["time"],
                 "value": item["value"],
                 "name": item["name"]
             })
-    return pd.DataFrame(rows)
 
-def build_feature_dataframe(df):
-    features = {}
+    df = pd.DataFrame(rows)
 
-    # Conexiones → NumPersonas
-    conexiones = df[df["name"] == "conexiones"]
-    if not conexiones.empty:
-        features["NumPersonas"] = conexiones.groupby("time")["value"].sum()
-
-    # Electricidad
-    energia = df[df["name"] == "15m"]
-    if not energia.empty:
-        features["Energía"] = energia.groupby("time")["value"].sum()
-
-    # Sensores directos
-    mapping = {
-        "CO2": "CO2",
-        "Temperature": "Temperatura",
-        "Humidity": "Humedad",
-        "VocIndex": "Mass Concentration"
+    return {
+        name: df[df["name"] == name].copy()
+        for name in df["name"].unique()
     }
-    for raw, col in mapping.items():
-        temp = df[df["name"] == raw]
-        if not temp.empty:
-            features[col] = temp.set_index("time")["value"]
 
-    final_df = pd.DataFrame(features)
-    final_df.sort_index(inplace=True)
-    return final_df
-
-def resample_15min(df):
-    df_15 = df.resample("15min").agg({
-        "CO2": "mean",
-        "Temperatura": "mean",
-        "Humedad": "mean",
-        "Mass Concentration": "mean",
-        "NumPersonas": "sum",
-        "Energía": "sum"
-    })
-    df_15 = df_15.interpolate(method="time").bfill().ffill()
-    return df_15
+def delete_NaN(df):
+    df_clean = df.copy()
+    df_clean = df_clean[df_clean.isna().mean(axis=1) <= 0.3]
+    df_clean["NumPers"] = df_clean["NumPers"].interpolate(method="time",limit=5)
+    df_clean = df_clean.dropna()
+    return df_clean
 
 def add_time_features(df):
     df = df.copy()
@@ -167,5 +154,5 @@ def add_cyclic_features(df):
 def dataframe_to_json_records(df: pd.DataFrame):
     df_out = df.copy()
     df_out = df_out.reset_index()
-    df_out["time"] = df_out["time"].astype(str)
+    df_out["timestamp"] = df_out["timestamp"].astype(str)
     return df_out.to_dict(orient="records")

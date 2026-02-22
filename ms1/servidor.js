@@ -39,13 +39,12 @@ app.get("/fetch-data", async (req, res) => {
                 rows.push(createMessage(data))
             }
         }
-
+        
         await fetch(MS_URL, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(rows)
         });
-
 
         res.status(200).json({
             message: "Datos enviados correctamente a MS2",

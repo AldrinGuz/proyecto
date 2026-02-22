@@ -2,9 +2,9 @@ from fastapi import FastAPI, Request
 import requests
 
 MS3_URLS = {
-    "ocsvm": "http://localhost:8001/predict",
-    "isoforest": "http://localhost:8002/predict",
-    "autoencoder": "http://localhost:8003/predict"
+    "ocsvm": "http://ms3_ocsvm:8001/predict",
+    "isoforest": "http://ms3_iforest:8002/predict",
+    "autoencoder": "http://ms3_autoencoder:8003/predict"
 }
 
 app = FastAPI(title="Orquestador de Anomalías")

@@ -12,9 +12,9 @@ app = FastAPI(title="MS3 - Autoencoder")
 async def predict(request: Request):
     payload = await request.json()
     df = pd.DataFrame(payload)
-
-    if "time" in df.columns:
-        df = df.drop(columns=["time"])
+    df = df.astype(float)
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df = df.set_index("timestamp").sort_index()
 
     # Predecir (para Autoencoder: -1 = anomalía, 1 = normal)
     preds = model.predict(df)
