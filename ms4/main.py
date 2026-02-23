@@ -30,15 +30,24 @@ async def aggregate_predictions(request: dict):
     ).json()
 
     final = []
-    votes = (
+
+    for i in range(len(ocsvm["predictions"])):
+
+        votes = (
             ocsvm["predictions"][i]
             + isoforest["predictions"][i]
             + autoencoder["predictions"][i]
         )
-    final.append(1 if votes >= 2 else 0)
 
+        final.append(1 if votes >= 2 else 0)
+
+    print("ocsvm:",ocsvm["predictions"])
+    print("isoforest:",ocsvm["predictions"])
+    print("autoencoder:",ocsvm["predictions"])
+    print("final:",final)
     return {
         "ocsvm": ocsvm,
         "isoforest": isoforest,
-        "autoencoder": autoencoder
+        "autoencoder": autoencoder,
+        "final_prediction": final
     }
