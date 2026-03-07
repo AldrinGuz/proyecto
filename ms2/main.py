@@ -58,6 +58,7 @@ async def preprocess_data(request: Request):
     #Retornamos los datos escalados
     # Convertimos DataFrame
     data_to_send = {
+        "raw": dataframe_to_json_records(df_final),
         "standard": dataframe_to_json_records(df_standard),
         "robust": dataframe_to_json_records(df_robust)
     }

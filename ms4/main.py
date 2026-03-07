@@ -11,6 +11,7 @@ app = FastAPI(title="Orquestador de Anomalías")
 
 @app.post("/aggregate")
 async def aggregate_predictions(request: dict):
+    raw = request["raw"]
     standard = request["standard"]
     robust = request["robust"]
 
@@ -29,16 +30,17 @@ async def aggregate_predictions(request: dict):
         json=standard
     ).json()
 
-    final = []
     votes = (
-            ocsvm["predictions"][i]
-            + isoforest["predictions"][i]
-            + autoencoder["predictions"][i]
+            ocsvm["predictions"][0]
+            + isoforest["predictions"][0]
+            + autoencoder["predictions"][0]
         )
-    final.append(1 if votes >= 2 else 0)
+    final = 1 if vote >= 2 else 0
 
     return {
+        "sensors": raw,
         "ocsvm": ocsvm,
         "isoforest": isoforest,
-        "autoencoder": autoencoder
+        "autoencoder": autoencoder,
+        "final": final
     }
