@@ -1,5 +1,12 @@
 const API_URL = "http://ms4:8004";
 
+export async function getStatus() {
+
+  const response = await fetch(`${API_URL}/status`);
+
+  return response.json();
+}
+
 export async function getPredictions(data) {
 
   const response = await fetch(`${API_URL}/aggregate`, {

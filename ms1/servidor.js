@@ -21,8 +21,30 @@ const listCLIMA = ["sensor-voc-1","sensor-voc-2","sensor-voc-3","sensor-voc-4","
 const listELECTRICIDAD = ["0036 German Bernacer A/A","0036 German Bernacer Aire Acond.","0036 German Bernacer-Servicios Generales","0036 Germán Bernácer"];
 
 app.get("/fetch-data", async (req, res) => {
+
+    await fetchAndSendData();
+
+    res.json({ message: "Pipeline ejecutado manualmente" });
+
+});
+
+app.listen(PORT, () => {
+
+    console.log("MS1 activado. Puerto:", PORT);
+
+    // ejecutar una vez al iniciar
+    fetchAndSendData();
+
+    // ejecutar cada 15 minutos
+    setInterval(fetchAndSendData, 15 * 60 * 1000);
+
+});
+
+async function fetchAndSendData() {
     try {
+
         let rows = [];
+
         const listData = [
             await getData(K_CO2,[{field:"magnitude",values:["CO2"]},{field:"device_id",values:listCLIMA}]),
             await getData(K_TEMPERATURA,[{field:"magnitude",values:["Temperature"]},{field:"device_id",values:listCLIMA}]),
@@ -39,47 +61,42 @@ app.get("/fetch-data", async (req, res) => {
                 rows.push(createMessage(data))
             }
         }
-        
+
         await fetch(MS_URL, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(rows)
         });
 
-        res.status(200).json({
-            message: "Datos enviados correctamente a MS2",
-            ms2: rows
-        });
+        console.log("Datos enviados correctamente a MS2");
 
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: "Error interno en MS1" });
+        console.error("Error en pipeline:", err);
     }
-});
-
-
-app.listen(PORT, () => { console.log("MS1 activado. Esta escuchando en el puerto: "+PORT); });
+}
 
 /**
  * @param {String} token  
  * @param {{filter:string,values:string[]}[]} filters 
 */
-async function getData(token,filters) {
-    const response = await fetch(`https://api.kunna.io/openapi/measurements/query/data/`, {
+async function getData(token, filters) {
+
+    const end = new Date();
+    const start = new Date(end.getTime() - 60 * 60 * 1000); // 1 hora antes
+
+    const response = await fetch(`https://openapi.kunna.es/data/${token}`, {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
-            "x-token-open-api": token,
         },
         body: JSON.stringify({
-            time_range: {
-                start: "2025-06-01T07:00:00Z",
-                end: "2025-06-01T07:15:00Z"
-            },
+            time_start: start.toISOString(),
+            time_end: end.toISOString(),
             filters: filters,
+            count: false,
+            order: "DESC"
         })
     });
-
     return await response.json();
 }
 

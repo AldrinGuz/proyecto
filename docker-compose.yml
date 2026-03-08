@@ -1,6 +1,13 @@
 version: "3.9"
 
 services:
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - ms4
+      
   ms1:
     build: ./ms1
     ports:
