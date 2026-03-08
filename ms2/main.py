@@ -155,5 +155,12 @@ def add_cyclic_features(df):
 def dataframe_to_json_records(df: pd.DataFrame):
     df_out = df.copy()
     df_out = df_out.reset_index()
-    df_out["timestamp"] = df_out["timestamp"].astype(str)
+    df_out = df_out.drop(columns=["timestamp"])
     return df_out.to_dict(orient="records")
+
+"""
+def safe_get(dfs, key):
+    if key not in dfs:
+        raise ValueError(f"Falta sensor {key} en payload")
+    return dfs[key]
+"""

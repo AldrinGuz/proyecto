@@ -13,8 +13,6 @@ async def predict(request: Request):
     payload = await request.json()
     df = pd.DataFrame(payload)
     df = df.astype(float)
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-    df = df.set_index("timestamp").sort_index()
 
     # Predecir (para One-Class SVM: -1 = anomalía, 1 = normal)
     preds = model.predict(df)
