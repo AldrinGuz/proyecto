@@ -12,6 +12,8 @@ services:
     build: ./ms1
     ports:
       - "3000:3000"
+    depends_on:
+    - ms2
 
   ms2:
     build: ./ms2

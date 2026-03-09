@@ -55,7 +55,7 @@ async function fetchAndSendData() {
         ];
 
         for (const data of listData) {
-            if (data.code !== "20000-00000" || !data.result) {
+            if (data.code == "40011-00000" || !data.result) {
                 throw new Error("Error en Kunna API");
             } else {
                 rows.push(createMessage(data))
@@ -101,19 +101,13 @@ async function getData(token, filters) {
 }
 
 function createMessage(data) {
-    const { columns, values } = data.result;
-
-    const idxTime = columns.indexOf("time");
-    const idxValue = columns.indexOf("value");
-    const idxName = columns.indexOf("name");
-
-    if (idxTime === -1 || idxValue === -1 || idxName === -1) {
-        throw new Error("Columnas necesarias no encontradas");
+    if (!data || !data.data || !Array.isArray(data.data.records)) {
+        throw new Error("Estructura de datos inválida");
     }
 
-    return values.map(row => ({
-        time: row[idxTime],
-        value: row[idxValue],
-        name: row[idxName]
+    return data.data.records.map(record => ({
+        time: record.timestamp,
+        value: record.value,
+        name: record.device_id
     }));
 }
