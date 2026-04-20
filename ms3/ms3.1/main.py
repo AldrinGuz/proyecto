@@ -3,20 +3,34 @@ import pandas as pd
 import joblib
 import numpy as np
 
-# Cargar modelo
-model = joblib.load("oneclasssvm.pkl")  # cambiar según modelo
+model = joblib.load("modelo_one_class_svm.pkl") 
 
-app = FastAPI(title="MS3 - One-Class SVM")
+app = FastAPI(title="MS3 - One Class SVM")
 
 @app.post("/predict")
 async def predict(request: Request):
     payload = await request.json()
     df = pd.DataFrame(payload)
+    
+    if df.empty:
+        return {"prediction": 0}
+        
+    for col in ["time", "index", "timestamp"]:
+        if col in df.columns:
+            df = df.set_index(col)
+            
     df = df.astype(float)
+    df_actual = df.iloc[[-1]].copy()
 
-    # Predecir (para One-Class SVM: -1 = anomalía, 1 = normal)
-    preds = model.predict(df)
-    preds = np.where(preds == -1, 1, 0)  # convertir a 1 = anomalía, 0 = normal
+    # EL ESCUDO DEFINITIVO: Obligamos a Pandas a usar el orden exacto del entrenamiento
+    if hasattr(model, 'feature_names_in_'):
+        try:
+            df_actual = df_actual[model.feature_names_in_]
+        except KeyError as e:
+            print(f"❌ Error: El modelo requiere columnas que MS2 no envió. {e}")
+            return {"prediction": 0}
 
-    return {"predictions": preds.tolist()}
+    pred = model.predict(df_actual)[0]
+    es_anomalia = 1 if pred == -1 else 0
 
+    return {"prediction": es_anomalia}

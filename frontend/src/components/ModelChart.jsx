@@ -15,7 +15,13 @@ function ModelChart({ ocsvm, isoforest, autoencoder }) {
     datasets: [
       {
         label: "Resultado modelo",
-        data: [ocsvm, isoforest, autoencoder]
+        data: [ocsvm, isoforest, autoencoder],
+        backgroundColor: [
+          "#36a2eb",
+          "#ff9f40",
+          "#9966ff"
+        ],
+        borderRadius: 8
       }
     ]
   };

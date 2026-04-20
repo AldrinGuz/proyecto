@@ -1,44 +1,98 @@
 version: "3.9"
 
 services:
-  frontend:
-    build: ./frontend
-    ports:
-      - "5173:80"
-    depends_on:
-      - ms4
-      
-  ms1:
-    build: ./ms1
-    ports:
-      - "3000:3000"
-
-  ms2:
-    build: ./ms2
-    ports:
-      - "8000:8000"
-
+  # ===================================================
+  # CAPA 3: MODELOS DE IA (Son los primeros en arrancar)
+  # ===================================================
   ms3_ocsvm:
     build: ./ms3/ms3.1
     ports:
       - "8001:8001"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8001/docs\")' || exit 1"]
+      interval: 30s
+      start_period: 60s
+      timeout: 5s
+      retries: 3
 
   ms3_iforest:
     build: ./ms3/ms3.2
     ports:
       - "8002:8002"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8002/docs\")' || exit 1"]
+      interval: 30s
+      start_period: 60s
+      timeout: 5s
+      retries: 3
 
   ms3_autoencoder:
     build: ./ms3/ms3.3
     ports:
       - "8003:8003"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8003/docs\")' || exit 1"]
+      interval: 30s
+      start_period: 120s
+      timeout: 15s
+      retries: 5
 
+  # ===================================================
+  # CAPA 2: ORQUESTADOR (Espera a que la IA esté lista)
+  # ===================================================
   ms4:
     build: ./ms4
     ports:
       - "8004:8004"
     depends_on:
-      - ms2
-      - ms3_ocsvm
-      - ms3_iforest
-      - ms3_autoencoder
+      ms3_ocsvm:
+        condition: service_healthy
+      ms3_iforest:
+        condition: service_healthy
+      ms3_autoencoder:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8004/docs\")' || exit 1"]
+      interval: 30s
+      start_period: 30s
+      timeout: 5s
+      retries: 3
+
+  # ===================================================
+  # CAPA 1: PREPROCESADO (Espera a que el Orquestador esté listo)
+  # ===================================================
+  ms2:
+    build: ./ms2
+    ports:
+      - "8000:8000"
+    depends_on:
+      ms4:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8000/docs\")' || exit 1"]
+      interval: 30s
+      start_period: 60s
+      timeout: 15s
+      retries: 3
+
+  # ===================================================
+  # CAPA 0: EXTRACCIÓN (Espera a que todo el backend esté listo)
+  # ===================================================
+  ms1:
+    build: ./ms1
+    ports:
+      - "3000:3000"
+    depends_on:
+      ms2:
+        condition: service_healthy
+
+  # ===================================================
+  # FRONTEND
+  # ===================================================
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      ms4:
+        condition: service_healthy

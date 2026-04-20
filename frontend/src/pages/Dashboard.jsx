@@ -9,7 +9,7 @@ function Dashboard() {
 
   const [data, setData] = useState(null);
 
-  useEffect(() => {
+  /*useEffect(() => {
 
     async function fetchData() {
 
@@ -24,9 +24,22 @@ function Dashboard() {
 
     return () => clearInterval(interval);
 
-  }, [])
+  }, [])*/
   //Prueba
-  /*useEffect(() => {async function fetchData() {const result = {ocsvm: { predictions: [0] },isoforest: { predictions: [0] },autoencoder: { predictions: [0] }};setData(result);}fetchData();}, []);*/
+  useEffect(() => {async function fetchData() {const result = {
+      sensors: [{
+        Temp: 22.1,
+        Humedad: 45,
+        CO2: 520,
+        "Energía": 13.2
+      }],
+      models: {
+        ocsvm: 1,
+        isoforest: 0,
+        autoencoder: 0
+      },
+      final: true
+    };setData(result);}fetchData();}, []);
 
   if (!data || !data.sensors) return <p>Esperando datos del sistema...</p>;
 

@@ -21,7 +21,26 @@ function SensorChart({ sensors }) {
           sensors.humidity,
           sensors.co2,
           sensors.energy
-        ]
+        ],
+        borderColor: [
+          "#ff6384",
+          "#36a2eb",
+          "#ffce56",
+          "#4bc0c0"
+        ],
+        backgroundColor: [
+          "rgba(255,99,132,0.2)",
+          "rgba(54,162,235,0.2)",
+          "rgba(255,206,86,0.2)",
+          "rgba(75,192,192,0.2)"
+        ],
+        pointBackgroundColor: [
+          "#ff6384",
+          "#36a2eb",
+          "#ffce56",
+          "#4bc0c0"
+        ],
+        borderWidth: 3
       }
     ]
   };
