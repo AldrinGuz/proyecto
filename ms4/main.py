@@ -37,6 +37,16 @@ def init_db():
             final INTEGER
         )
     """)
+    # Tabla para relacionar predicciones con usuarios
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS prediction_users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            prediction_id INTEGER,
+            user_id INTEGER,
+            saved_at TEXT,
+            FOREIGN KEY (prediction_id) REFERENCES predictions(id)
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -148,3 +158,39 @@ async def get_status():
 async def get_history_endpoint(limit: int = 100):
     """Obtener historial de predicciones"""
     return {"history": get_history(limit)}
+
+@app.post("/save")
+async def save_manual_prediction(request: dict):
+    """
+    Guardar manualmente un registro con información del usuario.
+    Payload esperado: { usuario: 1, fecha: "2024-01-01T12:00:00", estado: { sensors, models, final } }
+    """
+    usuario = request.get("usuario", 1)
+    fecha = request.get("fecha")  # Fecha enviada desde el frontend
+    estado = request.get("estado", {})
+    
+    sensors = estado.get("sensors")
+    models = estado.get("models")
+    final = estado.get("final")
+    
+    # Usar la fecha proporcionada o la actual
+    timestamp = fecha if fecha else datetime.now().isoformat()
+    
+    # Guardar en la base de datos con información del usuario
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO predictions (timestamp, sensors, models, final) VALUES (?, ?, ?, ?)",
+        (timestamp, json.dumps(sensors), json.dumps(models), final)
+    )
+    pred_id = cursor.lastrowid
+    
+    # Agregar información del usuario
+    cursor.execute(
+        "INSERT INTO prediction_users (prediction_id, user_id, saved_at) VALUES (?, ?, ?)",
+        (pred_id, usuario, datetime.now().isoformat())
+    )
+    conn.commit()
+    conn.close()
+    
+    return {"message": "Registro guardado", "id": pred_id, "usuario": usuario, "fecha": timestamp}
