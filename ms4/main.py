@@ -2,6 +2,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
 import asyncio
+import sqlite3
+import json
+from datetime import datetime
+from pathlib import Path
 
 app = FastAPI(title="MS4 - Orquestador Asíncrono")
 
@@ -13,6 +17,62 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ===================================================
+# BASE DE DATOS SQLite (alternativa a LiteDB para Python)
+# ===================================================
+DB_PATH = "/app/data/predictions.db"
+
+def init_db():
+    """Inicializar la base de datos SQLite"""
+    Path("/app/data").mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS predictions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            sensors TEXT,
+            models TEXT,
+            final INTEGER
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def save_prediction(sensors, models, final):
+    """Guardar predicción en la base de datos"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO predictions (timestamp, sensors, models, final) VALUES (?, ?, ?, ?)",
+        (datetime.now().isoformat(), json.dumps(sensors), json.dumps(models), final)
+    )
+    conn.commit()
+    conn.close()
+
+def get_history(limit=100):
+    """Obtener historial de predicciones"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT timestamp, sensors, models, final FROM predictions ORDER BY id DESC LIMIT ?",
+        (limit,)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [
+        {
+            "timestamp": row[0],
+            "sensors": json.loads(row[1]),
+            "models": json.loads(row[2]),
+            "final": row[3]
+        }
+        for row in rows
+    ]
+
+# Inicializar base de datos al iniciar
+init_db()
 
 MS3_URLS = {
     "ocsvm": "http://ms3_ocsvm:8001/predict",
@@ -75,8 +135,16 @@ async def aggregate_predictions(request: dict):
         "final": final
     }
 
+    # Guardar en la base de datos SQLite
+    save_prediction(last_status["sensors"], last_status["models"], final)
+
     return {"message": "Predicción actualizada", "status": last_status}
     
 @app.get("/status")
 async def get_status():
     return last_status
+
+@app.get("/history")
+async def get_history_endpoint(limit: int = 100):
+    """Obtener historial de predicciones"""
+    return {"history": get_history(limit)}
