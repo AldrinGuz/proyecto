@@ -1,4 +1,4 @@
-const API_URL = "http://ms4:8004";
+const API_URL = "/api";
 
 export async function getStatus() {
 

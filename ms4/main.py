@@ -1,8 +1,18 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 import httpx
 import asyncio
 
 app = FastAPI(title="MS4 - Orquestador Asíncrono")
+
+# Configuración CORS para permitir conexiones del frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 MS3_URLS = {
     "ocsvm": "http://ms3_ocsvm:8001/predict",
