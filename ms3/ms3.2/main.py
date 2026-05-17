@@ -1,49 +1,90 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 import pandas as pd
-import joblib
 import numpy as np
+import joblib
 import json
+from collections import deque
 
-model = joblib.load("modelo_isolation_forest.pkl") 
+app = FastAPI(title="MS3.2 - Isolation Forest (Detección de Anomalías)")
 
-# CRÍTICO: Cargar el umbral calculado (si existiese) para unificar la arquitectura
+# Parámetros y Rutas
+MODEL_PATH = "models/modelo_isolation_forest.pkl"
+UMBRALES_PATH = "umbrales_anomalia.json"
+WINDOW_SIZE = 96 * 3  # Ventana de 3 días (96 muestras/día * 3)
+K_IF = 3              # Multiplicador para el umbral dinámico
+
+# Estado en memoria para el umbral dinámico
+scores_history = deque(maxlen=WINDOW_SIZE)
+
+# Carga del modelo y umbral inicial
 try:
-    with open("umbrales_anomalia.json", "r") as f:
-        umbrales = json.load(f)
-        # Asumimos que tienes una clave para el isolation forest, por ejemplo:
-        THRESHOLD = umbrales["umbral_isolation_forest"]
-        print(f"✅ Umbral Isolation Forest cargado correctamente: {THRESHOLD}")
+    model = joblib.load(MODEL_PATH)
+    print(f"✅ Modelo Isolation Forest cargado correctamente.")
 except Exception as e:
-    print(f"⚠️ Error cargando umbrales, usando valor por defecto. Error: {e}")
-    THRESHOLD = 0
+    print(f"❌ Error cargando modelo: {e}")
 
-app = FastAPI(title="MS3 - Isolation Forest")
+try:
+    with open(UMBRALES_PATH, "r") as f:
+        umbrales = json.load(f)
+        DEFAULT_THRESHOLD = umbrales.get("umbral_isolation_forest", -0.1)
+        print(f"✅ Umbral base cargado: {DEFAULT_THRESHOLD}")
+except Exception:
+    DEFAULT_THRESHOLD = -0.1 # Valor de seguridad
 
 @app.post("/predict")
 async def predict(request: Request):
-    payload = await request.json()
-    df = pd.DataFrame(payload)
-    
-    if df.empty:
-        return {"prediction": 0}
+    """
+    Recibe los datos escalados del MS2 y calcula el score de anomalía.
+    Implementa el umbral dinámico restando K*STD a la media móvil de los scores.
+    """
+    try:
+        body = await request.json()
+        data_list = body.get("data", [])
         
-    for col in ["time", "index", "timestamp"]:
-        if col in df.columns:
-            df = df.set_index(col)
-            
-    df = df.astype(float)
-    df_actual = df.iloc[[-1]].copy()
+        if not data_list:
+            raise HTTPException(status_code=400, detail="No se recibieron datos.")
 
-    # EL ESCUDO DEFINITIVO: Obligamos a Pandas a usar el orden exacto del entrenamiento
-    if hasattr(model, 'feature_names_in_'):
-        try:
-            df_actual = df_actual[model.feature_names_in_]
-        except KeyError as e:
-            print(f"❌ Error: El modelo requiere columnas que MS2 no envió. {e}")
-            return {"prediction": 0}
+        # 1. Convertir a DataFrame y limpiar
+        df = pd.DataFrame(data_list)
+        if "timestamp_rango" in df.columns:
+            df = df.drop(columns=["timestamp_rango"])
+        
+        # 2. Obtener scores (Isolation Forest devuelve score por fila)
+        # Tomamos solo la última fila (el instante actual T)
+        current_sample = df.values[-1:] 
+        score_if = model.decision_function(current_sample)[0]
 
-    # Predecir (-1 = anomalía, 1 = normal)
-    score = model.decision_function(df_actual)[0]
-    es_anomalia = 1 if float(score) < float(THRESHOLD) else 0
+        # 3. Lógica de Umbral Dinámico (Kaggle Style)
+        scores_history.append(score_if)
+        
+        if len(scores_history) > 10:
+            moving_avg = np.mean(scores_history)
+            moving_std = np.std(scores_history)
+            # En IF, menos es más anomalía, por eso restamos
+            umbral_dinamico = moving_avg - (K_IF * moving_std)
+        else:
+            umbral_dinamico = DEFAULT_THRESHOLD
 
-    return {"prediction": es_anomalia}
+        # 4. Detección
+        # Es anomalía si el score es MENOR que el umbral
+        is_anomaly = 1 if score_if < umbral_dinamico else 0
+
+        return {
+            "model": "isolation_forest",
+            "is_anomaly": int(is_anomaly),
+            "score": float(score_if),
+            "threshold": float(umbral_dinamico),
+            "status": "success"
+        }
+
+    except Exception as e:
+        print(f"Error en predicción IF: {e}")
+        return {"is_anomaly": 0, "error": str(e)}
+
+@app.get("/health")
+async def health():
+    return {
+        "status": "online",
+        "history_count": len(scores_history),
+        "current_threshold": float(np.mean(scores_history) - K_IF * np.std(scores_history)) if len(scores_history) > 0 else DEFAULT_THRESHOLD
+    }

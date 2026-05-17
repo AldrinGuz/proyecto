@@ -1,196 +1,111 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-import httpx
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 import asyncio
-import sqlite3
-import json
-from datetime import datetime
-from pathlib import Path
+import httpx
+import pandas as pd
+import numpy as np
 
-app = FastAPI(title="MS4 - Orquestador Asíncrono")
+app = FastAPI(title="MS4 - Orquestador de Consenso e Inteligencia")
 
-# Configuración CORS para permitir conexiones del frontend
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# ===================================================
-# BASE DE DATOS SQLite (alternativa a LiteDB para Python)
-# ===================================================
-DB_PATH = "/app/data/predictions.db"
-
-def init_db():
-    """Inicializar la base de datos SQLite"""
-    Path("/app/data").mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS predictions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT NOT NULL,
-            sensors TEXT,
-            models TEXT,
-            final INTEGER
-        )
-    """)
-    # Tabla para relacionar predicciones con usuarios
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS prediction_users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            prediction_id INTEGER,
-            user_id INTEGER,
-            saved_at TEXT,
-            FOREIGN KEY (prediction_id) REFERENCES predictions(id)
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-def save_prediction(sensors, models, final):
-    """Guardar predicción en la base de datos"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO predictions (timestamp, sensors, models, final) VALUES (?, ?, ?, ?)",
-        (datetime.now().isoformat(), json.dumps(sensors), json.dumps(models), final)
-    )
-    conn.commit()
-    conn.close()
-
-def get_history(limit=100):
-    """Obtener historial de predicciones"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT timestamp, sensors, models, final FROM predictions ORDER BY id DESC LIMIT ?",
-        (limit,)
-    )
-    rows = cursor.fetchall()
-    conn.close()
-    return [
-        {
-            "timestamp": row[0],
-            "sensors": json.loads(row[1]),
-            "models": json.loads(row[2]),
-            "final": row[3]
-        }
-        for row in rows
-    ]
-
-# Inicializar base de datos al iniciar
-init_db()
-
+# URLs de los modelos (Microservicios 3.x)
 MS3_URLS = {
     "ocsvm": "http://ms3_ocsvm:8001/predict",
     "isoforest": "http://ms3_iforest:8002/predict",
     "autoencoder": "http://ms3_autoencoder:8003/predict"
 }
 
-# Memoria del último resultado
-last_status = {
-    "sensors": None,
-    "models": None,
-    "final": None
-}
-
-async def fetch_prediction(client, model_name, url, payload):
-    """ Función asíncrona para hacer la petición HTTP sin bloquear el servidor """
-    try:
-        response = await client.post(url, json=payload, timeout=80.0)
-        response.raise_for_status()
-        return model_name, response.json()["prediction"]
-    except Exception as e:
-        print(f"Error en {model_name}: {e}")
-        return model_name, 0 # En caso de caída de un modelo, asume 0 para no frenar la app
-
 @app.post("/aggregate")
-async def aggregate_predictions(request: dict):
-    raw = request.get("raw", [])
-    robust = request.get("robust", [])
+async def aggregate_results(data: dict):
+    """
+    Recibe datos escalados, reales y alertas del MS2.
+    Coordina la votación y el aislamiento de anomalías.
+    """
+    try:
+        datos_escalados = data.get("datos_escalados", [])
+        datos_reales = data.get("datos_reales", [])
+        alertas_hw = data.get("alertas_hardware", [])
 
-    if not robust:
-        return {"error": "No data received"}
+        if not datos_escalados:
+            raise HTTPException(status_code=400, detail="Faltan datos escalados")
 
-    # Llamada en PARALELO a los 3 microservicios
-    async with httpx.AsyncClient() as client:
-        tasks = [
-            fetch_prediction(client, "ocsvm", MS3_URLS["ocsvm"], robust),
-            fetch_prediction(client, "isoforest", MS3_URLS["isoforest"], robust),
-            fetch_prediction(client, "autoencoder", MS3_URLS["autoencoder"], robust)
+        # 1. Llamadas en paralelo a los modelos del MS3
+        # Usamos asyncio para no bloquear el hilo mientras esperamos a los 3 modelos
+        async with httpx.AsyncClient() as client:
+            tasks = [
+                client.post(MS3_URLS["ocsvm"], json={"data": datos_escalados}, timeout=100.0),
+                client.post(MS3_URLS["isoforest"], json={"data": datos_escalados}, timeout=100.0),
+                client.post(MS3_URLS["autoencoder"], json={"data": datos_escalados}, timeout=100.0)
+            ]
+            
+            responses = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # 2. Extraer resultados y manejar posibles caídas de modelos
+        results = {}
+        model_names = ["ocsvm", "isoforest", "autoencoder"]
+        
+        for name, resp in zip(model_names, responses):
+            if isinstance(resp, Exception):
+                results[name] = {"error": str(resp), "anomaly": 0}
+            else:
+                results[name] = resp.json()
+
+        # 3. LÓGICA DE CONSENSO (Último instante de tiempo - fila 4)
+        # 1 significa Anomalía, 0 significa Normal
+        votos = [
+            results["ocsvm"].get("is_anomaly", 0),
+            results["isoforest"].get("is_anomaly", 0),
+            results["autoencoder"].get("is_anomaly", 0)
         ]
         
-        # Esperamos a que los 3 terminen simultáneamente
-        resultados = await asyncio.gather(*tasks)
+        # Consenso: Si 2 o más modelos dicen que hay anomalía
+        consenso_anomalia = 1 if sum(votos) >= 2 else 0
+
+        # 4. AISLAMIENTO DE COMPORTAMIENTO (Inteligencia del Autoencoder)
+        # Si el Autoencoder detectó anomalía, buscamos el "culpable"
+        culpable = "Ninguno"
+        error_por_variable = {}
         
-    # Convertimos la lista de tuplas en un diccionario
-    votos = dict(resultados)
+        if results["autoencoder"].get("is_anomaly") == 1:
+            # El MS3 del Autoencoder debe devolver el 'reconstruction_error' por columna
+            error_por_variable = results["autoencoder"].get("feature_errors", {})
+            if error_por_variable:
+                # El culpable es la columna con el error de reconstrucción más alto
+                culpable = max(error_por_variable, key=error_por_variable.get)
 
-    vote_count = (
-        votos.get("ocsvm", 0) +
-        votos.get("isoforest", 0) +
-        votos.get("autoencoder", 0)
-    )
+        # 5. CONSTRUCCIÓN DEL JSON INTELIGENTE
+        # Este es el objeto que el Frontend usará para pintar y alertar
+        final_response = {
+            "timestamp": datos_reales[-1].get("timestamp_rango"),
+            "consenso": {
+                "hay_anomalia": bool(consenso_anomalia),
+                "nivel_critico": "ALTO" if sum(votos) == 3 else "MEDIO" if sum(votos) == 2 else "BAJO",
+                "votos_detalle": {
+                    "ocsvm": bool(results["ocsvm"].get("is_anomaly")),
+                    "isoforest": bool(results["isoforest"].get("is_anomaly")),
+                    "autoencoder": bool(results["autoencoder"].get("is_anomaly"))
+                }
+            },
+            "analisis_causa": {
+                "culpable_probable": culpable,
+                "error_distribucion": error_por_variable, # Top errores para el gráfico de barras
+                "comentario": f"Detección basada en {culpable}" if consenso_anomalia else "Estado estable"
+            },
+            "datos_graficas": {
+                "actuales": datos_reales[-1],
+                "historico_ventana": datos_reales # Las 5 filas para las mini-gráficas
+            },
+            "alertas_hardware": alertas_hw
+        }
 
-    final = 1 if vote_count >= 2 else 0
+        # Aquí podrías añadir la lógica de GUARDAR en base de datos si se solicita
+        # p.ej: await save_to_db(final_response)
 
-    global last_status
-    last_status = {
-        # Guardamos solo el último registro crudo para el Frontend
-        "sensors": raw[-1] if raw else None,
-        "models": votos,
-        "final": final
-    }
+        return final_response
 
-    # Guardar en la base de datos SQLite
-    save_prediction(last_status["sensors"], last_status["models"], final)
+    except Exception as e:
+        print(f"Error en Orquestador: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-    return {"message": "Predicción actualizada", "status": last_status}
-    
 @app.get("/status")
-async def get_status():
-    return last_status
-
-@app.get("/history")
-async def get_history_endpoint(limit: int = 100):
-    """Obtener historial de predicciones"""
-    return {"history": get_history(limit)}
-
-@app.post("/save")
-async def save_manual_prediction(request: dict):
-    """
-    Guardar manualmente un registro con información del usuario.
-    Payload esperado: { usuario: 1, fecha: "2024-01-01T12:00:00", estado: { sensors, models, final } }
-    """
-    usuario = request.get("usuario", 1)
-    fecha = request.get("fecha")  # Fecha enviada desde el frontend
-    estado = request.get("estado", {})
-    
-    sensors = estado.get("sensors")
-    models = estado.get("models")
-    final = estado.get("final")
-    
-    # Usar la fecha proporcionada o la actual
-    timestamp = fecha if fecha else datetime.now().isoformat()
-    
-    # Guardar en la base de datos con información del usuario
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO predictions (timestamp, sensors, models, final) VALUES (?, ?, ?, ?)",
-        (timestamp, json.dumps(sensors), json.dumps(models), final)
-    )
-    pred_id = cursor.lastrowid
-    
-    # Agregar información del usuario
-    cursor.execute(
-        "INSERT INTO prediction_users (prediction_id, user_id, saved_at) VALUES (?, ?, ?)",
-        (pred_id, usuario, datetime.now().isoformat())
-    )
-    conn.commit()
-    conn.close()
-    
-    return {"message": "Registro guardado", "id": pred_id, "usuario": usuario, "fecha": timestamp}
+async def health_check():
+    return {"status": "online", "service": "Orchestrator"}

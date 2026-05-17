@@ -19,17 +19,26 @@ const listCONEXIONES = ["inal.36.0.11", "inal.36.0.12", "inal.36.0.13", "inal.36
 const listCLIMA = ["sensor-voc-1", "sensor-voc-2", "sensor-voc-3", "sensor-voc-4", "sensor-voc-5"];
 const listELECTRICIDAD = ["6339579", "6339651", "9688827", "6339566"];
 
-// MAPA CRÍTICO: Relaciona los IDs eléctricos con la descripción que MS2 necesita
-const MAPA_ELECTRICIDAD = {
-    "6339579": "0036 German Bernacer A/A",
-    "6339651": "0036 German Bernacer Aire Acond.",
-    "9688827": "0036 German Bernacer-Servicios Generales",
-    "6339566": "0036 Germán Bernácer"
+// Caché de estado en memoria para el "Arranque en Caliente" e imputación progresiva
+const cacheUltimosValores = {
+    clima: {},
+    electricidad: {},
+    conexiones: {}
 };
 
+// Inicialización de la caché con valores base seguros para evitar fallos si el primer fetch falla
+listCLIMA.forEach(s => {
+    cacheUltimosValores.clima[`tem_${s}`] = 22.0;
+    cacheUltimosValores.clima[`hum_${s}`] = 40.0;
+    cacheUltimosValores.clima[`co2_${s}`] = 450.0;
+    cacheUltimosValores.clima[`voc_${s}`] = 30.0;
+});
+listELECTRICIDAD.forEach(s => cacheUltimosValores.electricidad[`elec_${s}`] = 0.0);
+listCONEXIONES.forEach(s => cacheUltimosValores.conexiones[s] = 0);
+
 app.get("/fetch-data", async (req, res) => {
-    await fetchAndSendData();
-    res.json({ message: "Pipeline ejecutado manualmente" });
+    const msg = await fetchAndSendData();
+    res.json({ message: "Pipeline ejecutado manualmente", data: msg });
 });
 
 app.listen(PORT, () => {
@@ -37,101 +46,6 @@ app.listen(PORT, () => {
     fetchAndSendData();
     setInterval(fetchAndSendData, 15 * 60 * 1000);
 });
-
-/**
- * Revisa si algún sensor NO DEVOLVIÓ NINGÚN DATO en la ventana de 75 minutos.
- * Si es así, inyecta 5 puntos falsos (-9999) solo para ese sensor.
- */
-function completarSensores(data, filters, taskName) {
-    const magnitudesEsperadas = filters.find(f => f.field === "magnitude").values;
-    const sensoresEsperados = filters.find(f => f.field === "device_id").values;
-
-    if (!data || !data.data || !data.data.records || data.data.records.length === 0) {
-        console.log(`[WARN] ⚠️ Kunna devolvió 0 datos para ${taskName}. Generando anomalía total...`);
-        return generateSyntheticAnomaly(filters);
-    }
-
-    const records = data.data.records;
-    const sensoresRecibidos = new Set();
-    records.forEach(r => {
-        const id = r.device_id || r.uid;
-        if (id) sensoresRecibidos.add(id);
-    });
-
-    const plantillas = {};
-    magnitudesEsperadas.forEach(mag => {
-        const ejemplo = records.find(r => r.magnitude === mag || r.metric === mag);
-        if (ejemplo) {
-            plantillas[mag] = { metric: ejemplo.metric || mag, description: ejemplo.description || "" };
-        } else {
-            plantillas[mag] = { metric: mag, description: "Injected" };
-        }
-    });
-
-    const now = new Date();
-    let sensoresRellenados = new Set();
-    
-    sensoresEsperados.forEach(sensor => {
-        if (!sensoresRecibidos.has(sensor)) {
-            sensoresRellenados.add(sensor);
-            
-            for (let i = 0; i < 5; i++) {
-                const ts = new Date(now.getTime() - (i * 15 * 60 * 1000)).toISOString();
-                magnitudesEsperadas.forEach(mag => {
-                    records.push({
-                        timestamp: ts,
-                        device_id: sensor,
-                        magnitude: mag,
-                        metric: plantillas[mag].metric,
-                        description: plantillas[mag].description,
-                        description_origin: MAPA_ELECTRICIDAD[sensor] || "", // <-- FIX: Inyectamos el texto exacto
-                        value: -9999
-                    });
-                });
-            }
-        }
-    });
-
-    if (sensoresRellenados.size > 0) {
-        console.log(`[INFO] 🛠️  ${taskName}: Falta información total de algunos sensores.`);
-        console.log(`[INFO] 📡 Sensores inyectados: ${Array.from(sensoresRellenados).join(", ")}`);
-    }
-
-    return data;
-}
-
-/**
- * Genera un bloque completo de datos falsos (-9999) simulando 5 puntos temporales (75 min)
- */
-function generateSyntheticAnomaly(filters) {
-    const magnitudes = filters.find(f => f.field === "magnitude").values;
-    const deviceIds = filters.find(f => f.field === "device_id").values;
-    
-    const records = [];
-    const now = new Date();
-    
-    for (let i = 0; i < 5; i++) {
-        const ts = new Date(now.getTime() - (i * 15 * 60 * 1000)).toISOString();
-        for (const uid of deviceIds) {
-            for (const mag of magnitudes) {
-                records.push({
-                    timestamp: ts,
-                    device_id: uid,
-                    magnitude: mag,
-                    metric: mag,
-                    description: "Synthetic Anomaly",
-                    description_origin: MAPA_ELECTRICIDAD[uid] || "", // <-- FIX: Inyectamos el texto exacto
-                    value: -9999
-                });
-            }
-        }
-    }
-
-    return {
-        is_synthetic_anomaly: true,
-        data: { records: records, metadata: [] }
-    };
-}
 
 async function fetchAndSendData() {
     const listData = [];
@@ -149,28 +63,19 @@ async function fetchAndSendData() {
 
     for (const task of fetchTasks) {
         try {
-            let data = await getData(task.token, task.filters);
-            data = completarSensores(data, task.filters, task.name);
-            console.log(`[OK] Paquete de ${task.name} íntegro y preparado.`);
+            const data = await getData(task.token, task.filters);
             listData.push(data);
         } catch (err) {
-            console.error(`[ERROR RED] Fallo al conectar con Kunna para ${task.name}. Inyectando anomalía total...`);
-            listData.push(generateSyntheticAnomaly(task.filters));
+            console.error(`[ERROR RED] Fallo al conectar con Kunna para ${task.name}.`);
+            listData.push([]);
         }
     }
 
-    try {
-        const response = await fetch(MS_URL, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(listData)
-        });
-        
-        if (!response.ok) throw new Error(`Status ${response.status}`);
-        console.log(`[EXITO] 🚀 Se han enviado los 6 bloques completos de datos al MS2.`);
-    } catch (err) {
-        console.error("[CRITICO] No se pudo enviar la información al MS2:", err.message);
-    }
+    datosEnviar = alinearYCompletarDatosEnVentanas(listData);
+    // Enviamos los datos al MS2 y esperamos a que termine antes de retornar
+    await sendData(MS_URL, datosEnviar, " (Bloque de 75 min)");
+    
+    return datosEnviar;
 }
 
 async function getData(token, filters) {
@@ -193,4 +98,172 @@ async function getData(token, filters) {
     });
     
     return await response.json();
+}
+
+/**
+ * Envía los datos al destino  mediante un metodo POST. Si no se completa la operación saldrá un mensaje de aborto.
+ * @param {string} URL Destino de envío, el microservcio 2
+ * @param {{}[]} datos 
+ * @param {string} msg Opcional, un mensaje que se muestre con cada envío a modo de feedback
+ */
+async function sendData(URL,datos,msg=""){
+    try {
+        const response = await fetch(URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(datos)
+        });
+        
+        if (!response.ok) throw new Error(`Status ${response.status}`);
+        console.log(`[EXITO] Se han enviado los datos al MS2.${msg}`);
+    } catch (err) {
+        console.error("[CRITICO] No se pudo enviar la información al MS2:", err.message);
+    }
+}
+
+/**
+ * Convierte el bloque de 75 minutos en 5 ventanas secuenciales de 15 minutos.
+ */
+function alinearYCompletarDatosEnVentanas(listData) {
+    const ventanasDeTiempo = [];
+    const alertasHardware = [];
+    
+    const endMs = new Date().getTime();
+    const intervaloMs = 15 * 60 * 1000; // 15 minutos
+
+    // Creamos 5 cubos de tiempo (T-75, T-60, T-45, T-30, T-15) cronológicamente
+    for (let i = 5; i > 0; i--) {
+        const startRango = endMs - (i * intervaloMs);
+        const endRango = endMs - ((i - 1) * intervaloMs);
+        
+        const isUltimaVentana = (i === 1); // Solo alertamos si falla en el instante "actual"
+        const snapshot = procesarVentanaUnica(listData, startRango, endRango, isUltimaVentana, alertasHardware);
+        
+        // Agregar timestamp para que MS2 pueda extraer 'hora_sin', 'hora_cos', etc.
+        snapshot.timestamp_rango = new Date(endRango).toISOString();
+        ventanasDeTiempo.push(snapshot);
+    }
+
+    return { 
+        payloadParaMS2: ventanasDeTiempo, // Ahora es un array de 5 objetos
+        alertas: alertasHardware 
+    };
+}
+
+/**
+ * Procesa una única ventana de tiempo de 15 minutos.
+ */
+function procesarVentanaUnica(listData, startMs, endMs, isUltimaVentana, alertasHardware) {
+    const datosListosParaIA = {};
+    const timestampActual = new Date(endMs).toISOString();
+
+    // 1. PROCESAR CLIMA
+    listCLIMA.forEach(sensor => {
+        const temp = buscarUltimoValorEnRango(listData, "Temperature", sensor, startMs, endMs);
+        const hum = buscarUltimoValorEnRango(listData, "Humidity", sensor, startMs, endMs);
+        const co2 = buscarUltimoValorEnRango(listData, "CO2", sensor, startMs, endMs);
+        const voc = buscarUltimoValorEnRango(listData, "VocIndex", sensor, startMs, endMs);
+
+        // Imputación Temperatura
+        if (temp === null) {
+            if (isUltimaVentana) alertasHardware.push({ tipo: "OFFLINE", sensor: sensor, variable: "Temperature", time: timestampActual });
+            datosListosParaIA[`tem_${sensor}`] = cacheUltimosValores.clima[`tem_${sensor}`];
+        } else {
+            datosListosParaIA[`tem_${sensor}`] = temp;
+            cacheUltimosValores.clima[`tem_${sensor}`] = temp;
+        }
+
+        // Imputación Humedad
+        if (hum === null) {
+            if (isUltimaVentana) alertasHardware.push({ tipo: "OFFLINE", sensor: sensor, variable: "Humidity", time: timestampActual });
+            datosListosParaIA[`hum_${sensor}`] = cacheUltimosValores.clima[`hum_${sensor}`];
+        } else {
+            datosListosParaIA[`hum_${sensor}`] = hum;
+            cacheUltimosValores.clima[`hum_${sensor}`] = hum;
+        }
+
+        // Imputación CO2
+        if (co2 === null) {
+            if (isUltimaVentana) alertasHardware.push({ tipo: "OFFLINE", sensor: sensor, variable: "CO2", time: timestampActual });
+            datosListosParaIA[`co2_${sensor}`] = cacheUltimosValores.clima[`co2_${sensor}`];
+        } else {
+            datosListosParaIA[`co2_${sensor}`] = co2;
+            cacheUltimosValores.clima[`co2_${sensor}`] = co2;
+        }
+
+        // Imputación VOC
+        if (voc === null) {
+            if (isUltimaVentana) alertasHardware.push({ tipo: "OFFLINE", sensor: sensor, variable: "VocIndex", time: timestampActual });
+            datosListosParaIA[`voc_${sensor}`] = cacheUltimosValores.clima[`voc_${sensor}`];
+        } else {
+            datosListosParaIA[`voc_${sensor}`] = voc;
+            cacheUltimosValores.clima[`voc_${sensor}`] = voc;
+        }
+    });
+
+    // 2. PROCESAR ELECTRICIDAD
+    listELECTRICIDAD.forEach(medidor => {
+        const elec = buscarUltimoValorEnRango(listData, "electricityfacility", medidor, startMs, endMs) ?? 
+                     buscarUltimoValorEnRango(listData, "generalelectricity", medidor, startMs, endMs); 
+        
+        if (elec === null) {
+            if (isUltimaVentana) alertasHardware.push({ tipo: "OFFLINE", sensor: medidor, variable: "electricity", time: timestampActual });
+            datosListosParaIA[`elec_${medidor}`] = cacheUltimosValores.electricidad[`elec_${medidor}`];
+        } else {
+            datosListosParaIA[`elec_${medidor}`] = elec;
+            cacheUltimosValores.electricidad[`elec_${medidor}`] = elec;
+        }
+    });
+
+    // 3. PROCESAR CONEXIONES (Alumnos) - Imputación por AP individual para mayor precisión
+    let totalConexionesActuales = 0;
+    let apsCaidos = 0;
+
+    listCONEXIONES.forEach(ap => {
+        const conn = buscarUltimoValorEnRango(listData, "connections", ap, startMs, endMs);
+        
+        if (conn === null) {
+            apsCaidos++;
+            totalConexionesActuales += cacheUltimosValores.conexiones[ap]; // Sumamos el último valor conocido del AP
+        } else {
+            totalConexionesActuales += conn;
+            cacheUltimosValores.conexiones[ap] = conn;
+        }
+    });
+
+    if (apsCaidos > 0 && isUltimaVentana) {
+        alertasHardware.push({ tipo: "WARNING_AP", mensaje: `${apsCaidos} Puntos de acceso WiFi caídos`, time: timestampActual });
+    }
+    
+    datosListosParaIA['total_alumnos'] = totalConexionesActuales;
+
+    return datosListosParaIA;
+}
+
+/**
+ * Busca el valor más reciente DENTRO del rango de tiempo específico (startMs a endMs).
+ */
+function buscarUltimoValorEnRango(listData, magnitudeReal, deviceId, startMs, endMs) {
+    let ultimoValor = null;
+    let fechaMasRecienteEnRango = 0;
+
+    for (const respuesta of listData) {
+        if (!respuesta || !respuesta.data || !respuesta.data.records) continue;
+
+        for (const record of respuesta.data.records) {
+            if (record.device_id === deviceId && record.magnitude === magnitudeReal) {
+                const tiempoRegistro = new Date(record.timestamp).getTime();
+                
+                // Filtramos SOLO los que caen dentro de la ventana de 15 mins actual
+                if (tiempoRegistro >= startMs && tiempoRegistro <= endMs) {
+                    if (tiempoRegistro > fechaMasRecienteEnRango) {
+                        fechaMasRecienteEnRango = tiempoRegistro;
+                        ultimoValor = record.value;
+                    }
+                }
+            }
+        }
+    }
+    
+    return ultimoValor;
 }
