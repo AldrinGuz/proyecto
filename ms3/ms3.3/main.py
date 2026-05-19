@@ -9,7 +9,7 @@ import os
 app = FastAPI(title="MS3.3 - LSTM Autoencoder (Adaptativo 30 Col)")
 
 # Configuración de rutas y parámetros
-MODEL_PATH = "models/lstm_autoencoder.h5"
+MODEL_PATH = "modelos/modelo_autoencoder_lstm.keras"
 TIME_STEPS = 4  # Ventana temporal de Kaggle
 K_FACTOR = 3    # Multiplicador para el umbral dinámico
 WINDOW_SIZE = 96 * 3 
@@ -96,7 +96,3 @@ async def predict(request: PredictRequest):
     except Exception as e:
         print(f"Error en predicción Autoencoder: {e}")
         return {"is_anomaly": 0, "error": str(e)}
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8003)

@@ -8,7 +8,7 @@ from collections import deque
 app = FastAPI(title="MS3.1 - One-Class SVM (Detección de Fronteras)")
 
 # Parámetros y Rutas
-MODEL_PATH = "models/modelo_one_class_svm.pkl"
+MODEL_PATH = "modelos/modelo_one_class_svm.pkl"
 UMBRALES_PATH = "umbrales_anomalia.json"
 WINDOW_SIZE = 96 * 3  # Ventana de 3 días para coherencia con el sistema
 K_OCSVM = 3           # Factor multiplicador para el umbral dinámico

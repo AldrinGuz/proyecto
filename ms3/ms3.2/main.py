@@ -8,7 +8,7 @@ from collections import deque
 app = FastAPI(title="MS3.2 - Isolation Forest (Detección de Anomalías)")
 
 # Parámetros y Rutas
-MODEL_PATH = "models/modelo_isolation_forest.pkl"
+MODEL_PATH = "modelos/modelo_isolation_forest.pkl"
 UMBRALES_PATH = "umbrales_anomalia.json"
 WINDOW_SIZE = 96 * 3  # Ventana de 3 días (96 muestras/día * 3)
 K_IF = 3              # Multiplicador para el umbral dinámico

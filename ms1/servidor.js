@@ -16,7 +16,7 @@ const K_PARTICULAS = process.env.K_CLIMA;
 const K_ELECTRICIDAD = process.env.K_ELECTRICIDAD;
 
 const listCONEXIONES = ["inal.36.0.11", "inal.36.0.12", "inal.36.0.13", "inal.36.0.15", "inal.36.0.16", "inal.36.0.17", "inal.36.0.62", "inal.36.0.68", "inal.36.1.18", "inal.36.1.20", "inal.36.1.21", "inal.36.1.4", "inal.36.1.64", "inal.36.1.66", "inal.36.s.1", "inal.36.s.10", "inal.36.s.2", "inal.36.s.3", "inal.36.s.5", "inal.36.s.6", "inal.36.s.61", "inal.36.s.67", "inal.36.s.7", "inal.36.s.8", "inal.36.s.9"];
-const listCLIMA = ["sensor-voc-1", "sensor-voc-2", "sensor-voc-3", "sensor-voc-4", "sensor-voc-5"];
+const listCLIMA = ["sensor-voc-1", "sensor-voc-2", "sensor-voc-3", "sensor-voc-4"];
 const listELECTRICIDAD = ["6339579", "6339651", "9688827", "6339566"];
 
 // Caché de estado en memoria para el "Arranque en Caliente" e imputación progresiva

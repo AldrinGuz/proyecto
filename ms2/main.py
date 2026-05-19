@@ -31,19 +31,15 @@ COLUMNS_ORDER = [
     'tem_sensor-voc-1_diff', 'tem_sensor-voc-2_diff', 'tem_sensor-voc-3_diff', 'tem_sensor-voc-4_diff'
 ]
 
-# Mapeo de nombres de sensores del MS1 a los nombres del dataset de entrenamiento
 MAPEO_SENSORES = {
-    # Eléctricos (IDs de Kunna a nombres amigables del dataset)
     'elec_6339579': 'elec_aa_1',
     'elec_6339651': 'elec_aa_2',
     'elec_9688827': 'elec_servicios',
     'elec_6339566': 'elec_general',
-    # Los de clima ya vienen con el formato co2_sensor-voc-X, solo cambiamos voc por par
 }
 
 def add_time_cyclic_features(df):
     df_final = df.copy()
-    # Asegurarnos que el index es Datetime
     df_final.index = pd.to_datetime(df_final.index)
     
     df_final["hora"] = df_final.index.hour
@@ -59,7 +55,6 @@ def add_time_cyclic_features(df):
     df_final["mes_sin"] = np.sin(2 * np.pi * df_final["mes"] / 12)
     df_final["mes_cos"] = np.cos(2 * np.pi * df_final["mes"] / 12)
     
-    # dm (day of year)
     df_final["dm"] = df_final.index.dayofyear
     df_final["dm_sin"] = np.sin(2 * np.pi * df_final["dm"] / 365)
     df_final["dm_cos"] = np.cos(2 * np.pi * df_final["dm"] / 365)
@@ -77,50 +72,62 @@ async def preprocess_data(request: Request):
         if not payload_ms1:
             raise HTTPException(status_code=400, detail="No data found in payloadParaMS2")
 
-        # 1. Crear DataFrame desde la lista de 5 ventanas
+        # 1. Crear DataFrame
         df = pd.DataFrame(payload_ms1)
         df.set_index("timestamp_rango", inplace=True)
         
-        # 2. Renombrar columnas para que coincidan con Kaggle (VocIndex -> par, elec IDs -> nombres)
-        # Cambiamos voc_ por par_ (asumiendo que en Kaggle usaste 'par' para partículas/voc)
+        # 2. Renombrar (VocIndex -> par)
         df.columns = [c.replace('voc_', 'par_') for c in df.columns]
         df.rename(columns=MAPEO_SENSORES, inplace=True)
 
-        # 3. Añadir variables cíclicas
+        # 3. Variables cíclicas
         df_features = add_time_cyclic_features(df)
 
-        # 4. Añadir columnas _diff
-        # Seleccionamos sensores excluyendo las columnas cíclicas y binarias
+        # 4. Diferenciales _diff
         columnas_sensores = [c for c in df_features.columns if any(x in c for x in ['co2', 'tem', 'hum', 'par'])]
-        
         for col in columnas_sensores:
             df_features[f'{col}_diff'] = df_features[col].diff()
 
-        # Rellenar el primer NaN del diff con 0 (como en Kaggle)
         df_features.fillna(0, inplace=True)
 
-        # 5. Asegurar el orden de las columnas y que existan todas (46 en total)
-        # Si falta alguna columna por desincronización, la creamos con 0
+        # 5. Asegurar orden y existencia de las 46 columnas
         for col in COLUMNS_ORDER:
             if col not in df_features.columns:
                 df_features[col] = 0.0
 
         df_ordered = df_features[COLUMNS_ORDER]
 
-        # 6. Escalado (StandardScaler)
-        # scaler.transform espera un array 2D
-        data_scaled = scaler.transform(df_ordered)
-        df_scaled = pd.DataFrame(data_scaled, columns=COLUMNS_ORDER, index=df_ordered.index)
+        # 6. Determinar las columnas exactas con las que el scaler fue ajustado
+        if hasattr(scaler, "feature_names_in_"):
+            # Obtenemos directamente las columnas que guardó el scaler al entrenarse
+            scaler_cols = list(scaler.feature_names_in_)
+        else:
+            # Fallback en caso de que no tenga metadatos (37 columnas: 46 menos las 9 temporales cíclicas)
+            scaler_cols = [c for c in COLUMNS_ORDER if c not in [
+                'fin_de_semana', 'hora_sin', 'hora_cos', 'dia_sin', 'dia_cos', 'mes_sin', 'mes_cos', 'dm_sin', 'dm_cos'
+            ]]
 
-        # 7. Preparar envío al Orquestador
-        # Enviamos los datos escalados, los reales (df_ordered) y las alertas
+        # 7. Escalado selectivo
+        df_to_scale = df_ordered[scaler_cols]
+        data_scaled = scaler.transform(df_to_scale)
+        df_scaled_part = pd.DataFrame(data_scaled, columns=scaler_cols, index=df_ordered.index)
+
+        # Reconstruimos el DataFrame completo manteniendo los valores reales no escalados de las cíclicas
+        df_scaled = df_ordered.copy()
+        for col in scaler_cols:
+            df_scaled[col] = df_scaled_part[col]
+
+        # Garantizamos el orden final exacto de las 46 columnas para los modelos
+        df_scaled = df_scaled[COLUMNS_ORDER]
+
+        # 8. Preparar resultado final
         result = {
             "datos_escalados": df_scaled.reset_index().to_dict(orient="records"),
             "datos_reales": df_ordered.reset_index().to_dict(orient="records"),
             "alertas_hardware": alertas
         }
 
-        # 8. Envío automático al Orquestador (MS4)
+        # 9. Envío automático al Orquestador (MS4)
         try:
             response = requests.post(MS4_URL, json=result, timeout=10)
             return {
@@ -132,7 +139,7 @@ async def preprocess_data(request: Request):
             return {
                 "status": "error", 
                 "message": f"Fallo al enviar a MS4: {str(e)}",
-                "processed_data_preview": result["datos_reales"][-1] # Enviamos preview para debug
+                "processed_data_preview": result["datos_reales"][-1]
             }
 
     except Exception as e:

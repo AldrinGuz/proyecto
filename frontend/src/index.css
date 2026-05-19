@@ -1,59 +1,29 @@
-body{
-  margin:0;
-  font-family: Arial, Helvetica, sans-serif;
-  background:#f4f6f8;
+@import "tailwindcss";
+
+/* Personalizaciones estéticas para tu TFG/TFM */
+body {
+  margin: 0;
+  background-color: #0f172a; /* Slate 900 */
+  color: #f8fafc; /* Slate 50 */
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  overflow-x: hidden;
 }
 
-.dashboard{
-
-  height:100vh;
-  display:grid;
-
-  grid-template-rows: 80px 1fr 160px;
-  grid-template-columns: 1fr 1fr;
-
-  grid-template-areas:
-    "title title"
-    "sensors models"
-    "status status";
-
-  gap:20px;
-  padding:20px;
-  box-sizing:border-box;
+/* Scrollbars personalizados para un estilo ciberpunk/industrial más elegante */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
 }
 
-.title{
-  grid-area:title;
-  display:flex;
-  justify-content:center;
-  align-items:center;
-  background:white;
-  border-radius:10px;
+::-webkit-scrollbar-track {
+  background: #0f172a;
 }
 
-.panel{
-  background:white;
-  border-radius:10px;
-  padding:15px;
-  box-shadow:0 4px 10px rgba(0,0,0,0.1);
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 9999px;
 }
 
-.sensors{
-  grid-area:sensors;
-}
-
-.models{
-  grid-area:models;
-}
-
-.status{
-  grid-area:status;
-  display:flex;
-  justify-content:center;
-  align-items:center;
-}
-
-canvas{
-  width:100% !important;
-  height:100% !important;
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
 }
