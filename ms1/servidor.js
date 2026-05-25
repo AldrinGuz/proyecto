@@ -44,7 +44,7 @@ app.get("/fetch-data", async (req, res) => {
 app.listen(PORT, () => {
     console.log("MS1 activado. Puerto:", PORT);
     fetchAndSendData();
-    setInterval(fetchAndSendData, 15 * 60 * 1000);
+    setInterval(fetchAndSendData, 1 * 60 * 1000);// Velocidad de actualización: cada 1 minuto (ajustable según necesidades, pero 1 min es un buen equilibrio para datos de sensores y carga del sistema)
 });
 
 async function fetchAndSendData() {

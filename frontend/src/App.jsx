@@ -398,25 +398,25 @@ export default function App() {
             {renderSVGChart(
               "Dióxido de Carbono (CO2) - ppm", 
               SENSORS_CLIMA.map(s => `co2_${s}`), 
-              ["#2dd4bf", "#14b8a6", "#0d9488", "#0f766e", "#115e59"], 
+              ["#2dd4bf", "#14b8a6", "#0d9488", "#0f766e"], 
               350, 1200
             )}
             {renderSVGChart(
               "Temperatura Ambiente - ºC", 
               SENSORS_CLIMA.map(s => `tem_${s}`), 
-              ["#fb7185", "#f43f5e", "#e11d48", "#be123c", "#9f1239"], 
+              ["#fb7185", "#f43f5e", "#e11d48", "#be123c"], 
               18, 32
             )}
             {renderSVGChart(
               "Humedad Relativa - %", 
               SENSORS_CLIMA.map(s => `hum_${s}`), 
-              ["#38bdf8", "#0ea5e9", "#0284c7", "#0369a1", "#075985"], 
+              ["#38bdf8", "#0ea5e9", "#0284c7", "#0369a1"], 
               30, 65
             )}
             {renderSVGChart(
               "Partículas en Suspensión (VOC Index)", 
               SENSORS_CLIMA.map(s => `par_${s}`), 
-              ["#c084fc", "#a855f7", "#9333ea", "#7e22ce", "#6b21a8"], 
+              ["#c084fc", "#a855f7", "#9333ea", "#7e22ce"], 
               10, 250
             )}
             {renderSVGChart(
@@ -615,7 +615,7 @@ export default function App() {
       {/* FOOTER */}
       <footer className="mt-12 pt-6 border-t border-slate-800 flex flex-col md:flex-row justify-between items-center gap-4 text-xs text-slate-500 font-mono">
         <div>
-          Edificio Germán Bernácer - TFG / TFM Universidad de Alicante
+          Edificio Germán Bernácer - TFG Universidad de Alicante
         </div>
         <div>
           Desarrollado en base a Ensembles Outlier Detection & Adaptive Thresholds.
